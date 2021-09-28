@@ -785,6 +785,9 @@ Codeless drop-in universal library allows to prevent issues of keyboard sliding 
     /** To save rootViewController.view.frame.origin. */
     private var         _topViewBeginOrigin = IQKeyboardManager.kIQCGPointInvalid
 
+    /** To save window.frame.origin. */
+    private var         _windowBeginOrigin = IQKeyboardManager.kIQCGPointInvalid
+    
     /** To overcome with popGestureRecognizer issue Bug ID: #1361 */
     private weak var    _rootViewControllerWhilePopGestureRecognizerActive: UIViewController?
     private var         _topViewBeginOriginWhilePopGestureRecognizerActive = IQKeyboardManager.kIQCGPointInvalid
@@ -939,12 +942,67 @@ Codeless drop-in universal library allows to prevent issues of keyboard sliding 
         if _privateHasPendingAdjustRequest == false {
             _privateHasPendingAdjustRequest = true
             OperationQueue.main.addOperation {
-                self.adjustPosition()
+                self.adjustPositionByWindow()
+//                self.adjustPosition()
                 self._privateHasPendingAdjustRequest = false
             }
         }
     }
 
+    private func adjustPositionByWindow() {
+        if _privateHasPendingAdjustRequest == true,
+           let textFieldView = _textFieldView,
+           let window = keyWindow(),
+           let textFieldViewRectInWindow = textFieldView.superview?.convert(textFieldView.frame, to: window) {
+            //Maintain keyboardDistanceFromTextField
+            var specialKeyboardDistanceFromTextField = textFieldView.keyboardDistanceFromTextField
+            if let searchBar = textFieldView.textFieldSearchBar() {
+                
+                specialKeyboardDistanceFromTextField = searchBar.keyboardDistanceFromTextField
+            }
+            let newKeyboardDistanceFromTextField = (specialKeyboardDistanceFromTextField == kIQUseDefaultKeyboardDistance) ? keyboardDistanceFromTextField : specialKeyboardDistanceFromTextField
+
+            var kbSize = _kbFrame.size
+            let move = textFieldViewRectInWindow.maxY-(window.frame.height-kbSize.height)+newKeyboardDistanceFromTextField
+            if move > 0 {
+                showLog("Moving Window Upward")
+                var beginOrgin = _windowBeginOrigin
+                if beginOrgin.equalTo(IQKeyboardManager.kIQCGPointInvalid) {
+                    beginOrgin = window.frame.origin
+                }
+                
+                let targetOrigin = CGPoint(x: beginOrgin.x, y: beginOrgin.y - move)
+                if targetOrigin.equalTo(window.frame.origin) {
+                    return
+                }
+                
+                UIView.animate(withDuration: _animationDuration, delay: 0, options: _animationCurve.union(.beginFromCurrentState), animations: { () -> Void in
+                    
+                    var rect = window.frame
+                    rect.origin = targetOrigin
+                    window.frame = rect
+                    
+                    self.showLog("Set \(window) origin to: \(rect)")
+                })
+            } else {
+                var beginOrgin = _windowBeginOrigin
+                if beginOrgin.equalTo(IQKeyboardManager.kIQCGPointInvalid) == false {
+                    UIView.animate(withDuration: _animationDuration, delay: 0, options: _animationCurve.union(.beginFromCurrentState), animations: { () -> Void in
+                        
+                        var rect = window.frame
+                        rect.origin = beginOrgin
+                        window.frame = rect
+                        
+                        self.showLog("Set \(window) origin to: \(rect)")
+                    })
+                }
+                
+                
+            }
+            
+        }
+    }
+    
     /* Adjusting RootViewController's frame according to interface orientation. */
     private func adjustPosition() {
         
@@ -1445,6 +1503,23 @@ Codeless drop-in universal library allows to prevent issues of keyboard sliding 
         
         _privateHasPendingAdjustRequest = false
         
+        if _topViewBeginOrigin.equalTo(IQKeyboardManager.kIQCGPointInvalid) == false {
+            if let window = keyWindow() {
+                if window.frame.origin.equalTo(_windowBeginOrigin) == false {
+                    UIView.animate(withDuration: _animationDuration, delay: 0, options: _animationCurve.union(.beginFromCurrentState), animations: { () -> Void in
+                        
+                        self.showLog("Restoring \(window) origin to: \(self._windowBeginOrigin)")
+                        
+                        //  Setting it's new frame
+                        var rect = window.frame
+                        rect.origin = self._windowBeginOrigin
+                        window.frame = rect
+                        
+                    })
+                }
+            }
+        }
+        
         //  Setting rootViewController frame to it's original position. //  (Bug ID: #18)
         if _topViewBeginOrigin.equalTo(IQKeyboardManager.kIQCGPointInvalid) == false {
             
@@ -1824,6 +1899,11 @@ Codeless drop-in universal library allows to prevent issues of keyboard sliding 
 
                     self.showLog("Saving \(controller) beginning origin: \(self._topViewBeginOrigin)")
                 }
+            }
+            
+            if _windowBeginOrigin.equalTo(IQKeyboardManager.kIQCGPointInvalid),
+               let window = keyWindow() {
+                _windowBeginOrigin = window.frame.origin
             }
             
             //If _textFieldView is inside ignored responder then do nothing. (Bug ID: #37, #74, #76)
